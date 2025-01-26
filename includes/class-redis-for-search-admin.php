@@ -45,6 +45,14 @@ class Redis_For_Search_Admin {
         );
 
         add_settings_field(
+            'enable_stats',
+            __('Track Cache Statistics', 'redis-for-search'),
+            array($this, 'render_enable_stats_field'),
+            'redis-for-search',
+            'redis_for_search_general'
+        );
+
+        add_settings_field(
             'cache_type',
             __('Cache Storage Type', 'redis-for-search'),
             array($this, 'render_cache_type_field'),
@@ -239,7 +247,7 @@ class Redis_For_Search_Admin {
                 </form>
             <?php elseif ($active_tab == 'cache'): ?>
                 <?php
-                $redis = new Redis_For_Search();
+                $redis = Redis_For_Search::get_instance();
                 $stats = get_option('redis_for_search_stats');
                 $total_requests = $stats['hits'] + $stats['misses'];
                 $hit_rate = $total_requests > 0 ? round(($stats['hits'] / $total_requests) * 100, 2) : 0;
@@ -273,20 +281,23 @@ class Redis_For_Search_Admin {
     }
 
     public function validate_options($input) {
-        $new_input = array();
+        $valid = array();
 
-        $new_input['cache_type'] = in_array($input['cache_type'], array('disk', 'redis')) ? $input['cache_type'] : 'disk';
-        $new_input['cache_ttl'] = absint($input['cache_ttl']);
-        $new_input['redis_host'] = sanitize_text_field($input['redis_host']);
-        $new_input['redis_port'] = sanitize_text_field($input['redis_port']);
-        $new_input['redis_username'] = sanitize_text_field($input['redis_username']);
-        $new_input['redis_password'] = sanitize_text_field($input['redis_password']);
-        $new_input['auto_revalidate'] = isset($input['auto_revalidate']) ? true : false;
-        $new_input['enable_cache'] = isset($input['enable_cache']) ? true : false;
-        $new_input['enable_stats'] = isset($input['enable_stats']) ? true : false;
-        $new_input['enable_smart_cache'] = isset($input['enable_smart_cache']) ? true : false;
+        $valid['enable_cache'] = isset($input['enable_cache']) ? true : false;
+        
+        $valid['enable_stats'] = isset($input['enable_stats']) ? true : false;
 
-        return $new_input;
+        $valid['cache_type'] = sanitize_text_field($input['cache_type']);
+
+        $valid['cache_ttl'] = absint($input['cache_ttl']);
+        $valid['redis_host'] = sanitize_text_field($input['redis_host']);
+        $valid['redis_port'] = sanitize_text_field($input['redis_port']);
+        $valid['redis_username'] = sanitize_text_field($input['redis_username']);
+        $valid['redis_password'] = sanitize_text_field($input['redis_password']);
+        $valid['auto_revalidate'] = isset($input['auto_revalidate']) ? true : false;
+        $valid['enable_smart_cache'] = isset($input['enable_smart_cache']) ? true : false;
+
+        return $valid;
     }
 
     public function reset_search_cache() {
@@ -300,7 +311,7 @@ class Redis_For_Search_Admin {
         
         if ($cache_type === 'redis') {
             // Reset Redis cache
-            $redis = new Redis_For_Search();
+            $redis = Redis_For_Search::get_instance();
             $redis->flush_cache();
         } else {
             // Reset disk cache

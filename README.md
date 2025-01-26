@@ -44,6 +44,30 @@ Once configured, the plugin works automatically. It will:
 - Automatically invalidate cache when posts are updated
 - Track cache performance statistics
 
+### WP-CLI Commands
+
+The plugin provides several WP-CLI commands to manage the cache:
+
+```bash
+# Rebuild the search cache for all posts
+wp redis-for-search rebuild
+
+# Options:
+#   --type=<type>    Cache type (redis or disk)
+#   --batch=<size>   Batch size for processing (default: 100)
+```
+
+Example usage:
+```bash
+# Rebuild cache using Redis
+wp redis-for-search rebuild --type=redis
+
+# Rebuild cache using disk storage with batch size of 200
+wp redis-for-search rebuild --type=disk --batch=200
+```
+
+Note: Make sure WP-CLI is installed and you're in your WordPress installation directory when running these commands.
+
 ## Contributing
 
 Contributions are welcome! Feel free to:

@@ -5,215 +5,297 @@ if (!defined('ABSPATH')) {
 }
 
 class Redis_For_Search {
-    private $redis;
+    private static $instance = null;
+    private $redis = null;
     private $options;
     private $cache_prefix = 'rfs_';
-    private $cache_stats = array(
-        'hits' => 0,
-        'misses' => 0,
-        'last_reset' => 0
-    );
+    private $smart_cache;
+    private $logger;
 
-    public function init() {
-        if (is_admin()) {
-            return;
+    private function __construct() {
+        $this->setup_logging();
+        $this->init();
+    }
+
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
         }
-        
-        $this->options = get_option('redis_for_search_options');
-        $this->cache_stats = get_option('redis_for_search_stats');
-        if (empty($this->cache_stats) || !isset($this->cache_stats['last_reset'])) {
-            $this->cache_stats = array(
-                'hits' => 0,
-                'misses' => 0,
-                'last_reset' => current_time('timestamp')
-            );
-            update_option('redis_for_search_stats', $this->cache_stats);
+        return self::$instance;
+    }
+
+    private function setup_logging() {
+        $this->logger = new class {
+            private function write_log($level, $message, $context = array()) {
+                if (WP_DEBUG === true) {
+                    $log_entry = sprintf('[%s] [%s] %s %s',
+                        current_time('mysql'),
+                        strtoupper($level),
+                        $message,
+                        !empty($context) ? json_encode($context) : ''
+                    );
+                    error_log($log_entry);
+                }
+            }
+
+            public function error($message, $context = array()) {
+                $this->write_log('error', $message, $context);
+            }
+
+            public function info($message, $context = array()) {
+                $this->write_log('info', $message, $context);
+            }
+
+            public function debug($message, $context = array()) {
+                $this->write_log('debug', $message, $context);
+            }
+        };
+    }
+
+    private function init() {
+        try {
+            $this->options = get_option('redis_for_search_options', array());
+            $this->setup_hooks();
+            $this->initialize_storage();
+            $this->initialize_smart_cache();
+        } catch (Exception $e) {
+            $this->logger->error('Initialization failed: ' . $e->getMessage());
         }
-        add_filter('posts_pre_query', array($this, 'get_cached_search_results'), 10, 2);
-        add_action('pre_get_posts', array($this, 'cache_search_results'));
-        
-        // Add hooks for cache revalidation if enabled
-        if (isset($this->options['auto_revalidate']) && $this->options['auto_revalidate']) {
-            add_action('save_post', array($this, 'invalidate_cache_on_post_update'), 10, 3);
-            add_action('delete_post', array($this, 'invalidate_cache_on_post_update'), 10);
+    }
+
+    private function setup_hooks() {
+        add_filter('posts_pre_query', array($this, 'filter_search_results'), 10, 2);
+        add_action('save_post', array($this, 'invalidate_cache'), 10, 3);
+        add_action('delete_post', array($this, 'invalidate_cache'), 10);
+        add_action('trash_post', array($this, 'invalidate_cache'), 10);
+    }
+
+    private function initialize_storage() {
+        if (isset($this->options['cache_type']) && $this->options['cache_type'] === 'redis') {
+            $this->connect_redis();
+        }
+    }
+
+    private function initialize_smart_cache() {
+        if (isset($this->options['enable_smart_cache']) && $this->options['enable_smart_cache']) {
+            require_once RFS_PLUGIN_DIR . 'includes/class-redis-for-search-smart-cache.php';
+            $this->smart_cache = new Redis_For_Search_Smart_Cache();
+            $this->smart_cache->init();
         }
     }
 
     private function connect_redis() {
-        if ($this->redis !== null) {
+        try {
+            if (!class_exists('Redis')) {
+                throw new Exception('Redis PHP extension not installed');
+            }
+
+            $this->redis = new Redis();
+            $host = isset($this->options['redis_host']) ? $this->options['redis_host'] : 'localhost';
+            $port = isset($this->options['redis_port']) ? (int)$this->options['redis_port'] : 6379;
+            $timeout = 2;
+
+            if (!$this->redis->connect($host, $port, $timeout)) {
+                throw new Exception('Could not connect to Redis server');
+            }
+
+            if (!empty($this->options['redis_password'])) {
+                if (!$this->redis->auth($this->options['redis_password'])) {
+                    throw new Exception('Redis authentication failed');
+                }
+            }
+
+            $this->logger->info('Connected to Redis server successfully');
             return true;
+
+        } catch (Exception $e) {
+            $this->redis = null;
+            $this->logger->error('Redis connection failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function filter_search_results($posts, $query) {
+        if (!$query->is_search()) {
+            return $posts;
         }
 
-        if (!class_exists('Redis')) {
+
+        try {
+            $search_terms = $query->get('s');
+            if (empty($search_terms)) {
+                return $posts;
+            }
+
+            $cache_key = $this->generate_cache_key($search_terms, $query);
+            $cached_results = $this->get_cache($cache_key);
+
+            if ($cached_results !== false) {
+                $this->logger->info('Cache hit for search: ' . $search_terms);
+                return $cached_results;
+            }
+
+            // Create the .cache file
+            $this->set_cache($cache_key, $posts);
+            
+
+            $this->logger->info('Cache miss for search: ' . $search_terms);
+            return $posts;
+
+        } catch (Exception $e) {
+            $this->logger->error('Error filtering search results: ' . $e->getMessage());
+            return $posts;
+        }
+    }
+
+    private function generate_cache_key($search_terms, $query) {
+        $key_parts = array(
+            'search',
+            md5($search_terms),
+            $query->get('posts_per_page'),
+            $query->get('paged'),
+            $query->get('post_type'),
+            $query->get('orderby'),
+            $query->get('order'),
+            md5(serialize($query->get('tax_query'))),
+            md5(serialize($query->get('meta_query')))
+        );
+
+        $key = $this->cache_prefix . implode('_', array_filter($key_parts));
+        $this->logger->debug('Generated cache key: ' . $key);
+        return $key;
+    }
+
+    public function get_cache($key) {
+        try {
+            if ($this->redis) {
+                return $this->get_redis_cache($key);
+            }
+            return $this->get_disk_cache($key);
+        } catch (Exception $e) {
+            $this->logger->error('Cache retrieval failed: ' . $e->getMessage());
             return false;
+        }
+    }
+
+    private function get_redis_cache($key) {
+        if (!$this->redis) {
+            return false;
+        }
+
+        $data = $this->redis->get($key);
+        if ($data === false) {
+            return false;
+        }
+
+        return unserialize($data);
+    }
+
+    private function get_disk_cache($key) {
+        $cache_file = WP_CONTENT_DIR . '/cache/redis-for-search/disk/' . md5($key) . '.cache';
+        if (!file_exists($cache_file)) {
+            return false;
+        }
+
+        $data = file_get_contents($cache_file);
+        if ($data === false) {
+            return false;
+        }
+
+        return unserialize($data);
+    }
+
+    public function set_cache($key, $data, $expiry = null) {
+        if ($expiry === null) {
+            $expiry = isset($this->options['cache_ttl']) ? (int)$this->options['cache_ttl'] : 3600;
         }
 
         try {
-            $this->redis = new Redis();
-            $host = isset($this->options['redis_host']) ? $this->options['redis_host'] : 'localhost';
-            $port = isset($this->options['redis_port']) ? $this->options['redis_port'] : 6379;
-            
-            if (!$this->redis->connect($host, $port)) {
-                return false;
+            if ($this->redis) {
+                return $this->set_redis_cache($key, $data, $expiry);
             }
-
-            $username = isset($this->options['redis_username']) ? $this->options['redis_username'] : '';
-            $password = isset($this->options['redis_password']) ? $this->options['redis_password'] : '';
-
-            if (!empty($username) && !empty($password)) {
-                if (!$this->redis->auth([$username, $password])) {
-                    return false;
-                }
-            } elseif (!empty($password)) {
-                if (!$this->redis->auth($password)) {
-                    return false;
-                }
-            }
-
-            return true;
+            return $this->set_disk_cache($key, $data);
         } catch (Exception $e) {
-            error_log('Redis connection error: ' . $e->getMessage());
+            $this->logger->error('Cache storage failed: ' . $e->getMessage());
             return false;
         }
     }
 
-    public function get_cached_search_results($posts, $query) {
-        if (!$query->is_search() || !$query->is_main_query() || 
-            !isset($this->options['enable_cache']) || !$this->options['enable_cache']) {
-            return $posts;
+    private function set_redis_cache($key, $data, $expiry) {
+        if (!$this->redis) {
+            return false;
         }
 
-        $cache_key = $this->get_cache_key($query);
-        $cache_type = isset($this->options['cache_type']) ? $this->options['cache_type'] : 'disk';
+        return $this->redis->setex($key, $expiry, serialize($data));
+    }
 
-        if ($cache_type === 'redis') {
-            if (!$this->connect_redis()) {
-                return $posts;
+    private function set_disk_cache($key, $data) {
+        try {
+            $cache_dir = WP_CONTENT_DIR . '/cache/redis-for-search/disk/';
+            
+            // Ensure cache directory exists and is writable
+            if (!is_dir($cache_dir)) {
+                if (!wp_mkdir_p($cache_dir)) {
+                    $this->logger->error('Failed to create cache directory: ' . $cache_dir);
+                    throw new Exception('Failed to create cache directory');
+                }
+                if (!chmod($cache_dir, 0755)) {
+                    $this->logger->error('Failed to set cache directory permissions');
+                    throw new Exception('Failed to set cache directory permissions');
+                }
+            } elseif (!is_writable($cache_dir)) {
+                $this->logger->error('Cache directory is not writable: ' . $cache_dir);
+                throw new Exception('Cache directory is not writable');
             }
-            $cached_results = $this->redis->get($cache_key);
-        } else {
-            $cache_file = $this->get_disk_cache_path($cache_key);
-            if (!file_exists($cache_file)) {
-                return $posts;
+
+            $cache_file = $cache_dir . md5($key) . '.cache';
+            $serialized_data = serialize($data);
+            
+            // Use atomic file writing
+            $safeWriter = new \Webimpress\SafeWriter\FileWriter();
+            try {
+                $safeWriter->writeFile($cache_file, $serialized_data);
+                if (!chmod($cache_file, 0644)) {
+                    $this->logger->error('Failed to set cache file permissions');
+                    throw new Exception('Failed to set cache file permissions');
+                }
+            } catch (\Webimpress\SafeWriter\Exception\ExceptionInterface $e) {
+                $this->logger->error('Failed to write cache file: ' . $e->getMessage());
+                throw new Exception('Failed to write cache file');
             }
-            $cached_results = file_get_contents($cache_file);
-        }
+            
+            $this->logger->debug('Cache file created successfully: ' . $cache_file);
+            return true;
 
-        if ($cached_results) {
-            $this->increment_cache_stat('hits');
-            return unserialize($cached_results);
+        } catch (Exception $e) {
+            $this->logger->error('Failed to set disk cache: ' . $e->getMessage());
+            return false;
         }
-
-        $this->increment_cache_stat('misses');
-        $this->increment_cache_stat('misses');
-        return $posts;
     }
 
-    private function increment_cache_stat($type) {
-        if (!isset($this->cache_stats[$type]) || !isset($this->options['enable_stats']) || !$this->options['enable_stats']) {
-            return;
-        }
-        $this->cache_stats[$type]++;
-        update_option('redis_for_search_stats', $this->cache_stats);
-    }
-
-    public function get_cache_stats() {
-        if (!isset($this->options['enable_stats']) || !$this->options['enable_stats']) {
-            return array(
-                'hits' => 0,
-                'misses' => 0,
-                'last_reset' => current_time('timestamp')
-            );
-        }
-        $this->cache_stats = get_option('redis_for_search_stats');
-        return $this->cache_stats;
-    }
-
-    public function reset_cache_stats() {
-        $this->cache_stats = array(
-            'hits' => 0,
-            'misses' => 0,
-            'last_reset' => current_time('timestamp')
-        );
-        update_option('redis_for_search_stats', $this->cache_stats);
-    }
-
-    public function cache_search_results($query) {
-        if (!$query->is_search() || !$query->is_main_query() || 
-            !isset($this->options['enable_cache']) || !$this->options['enable_cache']) {
-            return;
-        }
-
-        add_filter('posts_results', function($posts, $q) use ($query) {
-            if ($q === $query) {
-                $cache_key = $this->get_cache_key($query);
-                $cache_type = isset($this->options['cache_type']) ? $this->options['cache_type'] : 'disk';
-                $serialized_posts = serialize($posts);
-
-                if ($cache_type === 'redis') {
-                    if ($this->connect_redis()) {
-                        $ttl = isset($this->options['cache_ttl']) ? $this->options['cache_ttl'] : 3600;
-                        $this->redis->setex($cache_key, $ttl, $serialized_posts);
-                    }
-                } else {
-                    $cache_file = $this->get_disk_cache_path($cache_key);
-                    $cache_dir = dirname($cache_file);
-                    
-                    if (!is_dir($cache_dir)) {
-                        wp_mkdir_p($cache_dir);
-                    }
-                    
-                    file_put_contents($cache_file, $serialized_posts);
+    public function invalidate_cache($post_id) {
+        try {
+            if ($this->redis) {
+                $this->redis->del($this->cache_prefix . '*');
+            } else {
+                $cache_dir = WP_CONTENT_DIR . '/cache/redis-for-search/';
+                if (file_exists($cache_dir)) {
+                    array_map('unlink', glob($cache_dir . '*.cache'));
                 }
             }
-            return $posts;
-        }, 10, 2);
-    }
-
-    private function get_cache_key($query) {
-        $key_parts = array(
-            isset($query->query_vars['s']) ? $query->query_vars['s'] : '',
-            isset($query->query_vars['posts_per_page']) ? $query->query_vars['posts_per_page'] : get_option('posts_per_page'),
-            isset($query->query_vars['paged']) ? $query->query_vars['paged'] : 1,
-            isset($query->query_vars['orderby']) ? $query->query_vars['orderby'] : 'date',
-            isset($query->query_vars['order']) ? $query->query_vars['order'] : 'DESC'
-        );
-        return $this->cache_prefix . md5(serialize($key_parts));
-    }
-
-    private function get_disk_cache_path($cache_key) {
-        return WP_CONTENT_DIR . '/cache/redis-for-search/' . $cache_key . '.cache';
-    }
-
-    public function flush_cache() {
-        $cache_type = isset($this->options['cache_type']) ? $this->options['cache_type'] : 'disk';
-
-        if ($cache_type === 'redis') {
-            if ($this->connect_redis()) {
-                $keys = $this->redis->keys($this->cache_prefix . '*');
-                if (!empty($keys)) {
-                    foreach ($keys as $key) {
-                        $this->redis->del($key);
-                    }
-                }
-            }
-        } else {
-            $cache_dir = WP_CONTENT_DIR . '/cache/redis-for-search/';
-            if (is_dir($cache_dir)) {
-                array_map('unlink', glob("$cache_dir/*.*"));
-            }
+            $this->logger->info('Cache invalidated for post: ' . $post_id);
+            return true;
+        } catch (Exception $e) {
+            $this->logger->error('Cache invalidation failed: ' . $e->getMessage());
+            return false;
         }
     }
 
-    public function invalidate_cache_on_post_update($post_id, $post = null, $update = null) {
-        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-            return;
-        }
-        
-        if (!current_user_can('edit_post', $post_id)) {
-            return;
-        }
-        
-        $this->flush_cache();
+    public function get_redis_connection() {
+        return $this->redis;
+    }
+
+    public function is_redis_connected() {
+        return $this->redis !== null && $this->redis->ping() === true;
     }
 }
