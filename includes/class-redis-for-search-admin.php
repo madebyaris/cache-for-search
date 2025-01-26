@@ -12,6 +12,7 @@ class Redis_For_Search_Admin {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('admin_post_reset_search_cache', array($this, 'reset_search_cache'));
+        add_action('admin_post_delete_search_cache', array($this, 'delete_search_cache'));
         add_action('admin_post_build_search_index', array($this, 'build_search_index'));
         add_action('admin_post_test_data_json', array($this, 'test_data_json'));
     }
@@ -245,6 +246,18 @@ class Redis_For_Search_Admin {
                     submit_button();
                     ?>
                 </form>
+                
+                <div class="cache-actions" style="margin-top: 20px;">
+                    <h3><?php _e('Cache Management', 'redis-for-search'); ?></h3>
+                    <form action="<?php echo admin_url('admin-post.php'); ?>" method="post" style="display: inline-block;">
+                        <input type="hidden" name="action" value="delete_search_cache" />
+                        <?php wp_nonce_field('delete_search_cache_nonce', 'delete_cache_nonce'); ?>
+                        <?php submit_button(__('Delete Cache Data', 'redis-for-search'), 'delete', 'delete-cache', false); ?>
+                    </form>
+                    <p class="description">
+                        <?php _e('Removes all cached search results', 'redis-for-search'); ?>
+                    </p>
+                </div>
             <?php elseif ($active_tab == 'cache'): ?>
                 <?php
                 $redis = Redis_For_Search::get_instance();
@@ -261,11 +274,29 @@ class Redis_For_Search_Admin {
                         <strong><?php _e('Last Reset:', 'redis-for-search'); ?></strong> <?php echo date('Y-m-d H:i:s', $stats['last_reset']); ?>
                     </p>
                 </div>
-                <form action="<?php echo admin_url('admin-post.php'); ?>" method="post" style="margin-top: 20px;">
-                    <input type="hidden" name="action" value="reset_search_cache" />
-                    <?php wp_nonce_field('reset_search_cache_nonce', 'reset_cache_nonce'); ?>
-                    <?php submit_button(__('Reset Cache', 'redis-for-search'), 'secondary', 'reset-cache', false); ?>
-                </form>
+                <div class="cache-management" style="margin-top: 20px;">
+                    <h3><?php _e('Cache Management', 'redis-for-search'); ?></h3>
+                    <p class="description"><?php _e('Use these options to manage your search cache data:', 'redis-for-search'); ?></p>
+                    
+                    <div class="cache-actions" style="margin-top: 15px;">
+                        <form action="<?php echo admin_url('admin-post.php'); ?>" method="post" style="display: inline-block; margin-right: 10px;">
+                            <input type="hidden" name="action" value="reset_search_cache" />
+                            <?php wp_nonce_field('reset_search_cache_nonce', 'reset_cache_nonce'); ?>
+                            <?php submit_button(__('Reset Statistics', 'redis-for-search'), 'secondary', 'reset-cache', false); ?>
+                        </form>
+
+                        <form action="<?php echo admin_url('admin-post.php'); ?>" method="post" style="display: inline-block;">
+                            <input type="hidden" name="action" value="delete_search_cache" />
+                            <?php wp_nonce_field('delete_search_cache_nonce', 'delete_cache_nonce'); ?>
+                            <?php submit_button(__('Delete Cache Data', 'redis-for-search'), 'delete', 'delete-cache', false); ?>
+                        </form>
+                    </div>
+                    
+                    <p class="description" style="margin-top: 10px;">
+                        <?php _e('Reset Statistics: Resets hit/miss counters without deleting cached data', 'redis-for-search'); ?><br>
+                        <?php _e('Delete Cache Data: Removes all cached search results', 'redis-for-search'); ?>
+                    </p>
+                </div>
             <?php endif; ?>
         </div>
         <?php
@@ -348,6 +379,23 @@ class Redis_For_Search_Admin {
 
         wp_redirect(add_query_arg(
             array('page' => 'redis-for-search', 'index-built' => '1'),
+            admin_url('options-general.php')
+        ));
+        exit;
+    }
+
+    public function delete_search_cache() {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to access this page.'));
+        }
+
+        check_admin_referer('delete_search_cache_nonce', 'delete_cache_nonce');
+
+        $redis = Redis_For_Search::get_instance();
+        $redis->flush_cache();
+
+        wp_redirect(add_query_arg(
+            array('page' => 'redis-for-search', 'tab' => 'cache', 'cache-deleted' => '1'),
             admin_url('options-general.php')
         ));
         exit;
