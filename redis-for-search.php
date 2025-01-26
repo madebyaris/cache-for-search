@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: Redis for Search
- * Plugin URI: https://wordpress.org/plugins/redis-for-search/
- * Description: A WordPress plugin that caches search results using Redis, improving search performance and reducing database load.
+ * Plugin URI: maddebyaris.com
+ * Description: A WordPress plugin that caches search results using Redis or Disk, improving search performance and reducing database load.
  * Version: 1.0.0
- * Author: WordPress Developer
- * Author URI: https://wordpress.org/
+ * Author: M Aris Setiawan
+ * Author URI: https://madebyaris.com/
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: redis-for-search
