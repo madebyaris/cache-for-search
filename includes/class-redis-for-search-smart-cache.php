@@ -22,6 +22,36 @@ class Redis_For_Search_Smart_Cache {
     private $file_locks = array();
     private $logger;
 
+    private function connect_redis() {
+        try {
+            if (!class_exists('Redis')) {
+                throw new Exception('Redis extension is not installed');
+            }
+
+            $this->redis = new Redis();
+            $host = isset($this->options['redis_host']) ? $this->options['redis_host'] : 'localhost';
+            $port = isset($this->options['redis_port']) ? (int)$this->options['redis_port'] : 6379;
+            
+            if (!$this->redis->connect($host, $port)) {
+                throw new Exception('Failed to connect to Redis server');
+            }
+
+            // Optional authentication if configured
+            if (!empty($this->options['redis_password'])) {
+                if (!$this->redis->auth($this->options['redis_password'])) {
+                    throw new Exception('Redis authentication failed');
+                }
+            }
+
+            $this->logger->info('Successfully connected to Redis server');
+            return true;
+
+        } catch (Exception $e) {
+            $this->logger->error('Redis connection failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     private function setup_hooks() {
         try {
             // Hook into post updates to maintain cache consistency
@@ -308,6 +338,137 @@ class Redis_For_Search_Smart_Cache {
         }
     
         return array_unique($results, SORT_REGULAR);
+    }
+
+    public function rebuild_cache($batch_size = 200) {
+        try {
+            // Get all published posts
+            $args = array(
+                'post_type' => 'any',
+                'post_status' => 'publish',
+                'posts_per_page' => -1,
+                'fields' => 'ids'
+            );
+
+            $query = new WP_Query($args);
+            $post_ids = $query->posts;
+
+            if (empty($post_ids)) {
+                $this->logger->info('No posts found to cache');
+                return true;
+            }
+
+            // Get posts in batches
+            $total_posts = count($post_ids);
+            $processed = 0;
+            $batches = array_chunk($post_ids, $batch_size);
+
+            foreach ($batches as $batch) {
+                $posts = get_posts(array(
+                    'post__in' => $batch,
+                    'post_type' => 'any',
+                    'post_status' => 'publish',
+                    'posts_per_page' => count($batch)
+                ));
+
+                $processed += $this->process_batch($posts);
+                $this->logger->info("Processed $processed/$total_posts posts");
+            }
+
+            $this->logger->info('Cache rebuild completed successfully');
+            return true;
+
+        } catch (Exception $e) {
+            $this->logger->error('Cache rebuild failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function update_post_cache($post_id, $post = null, $update = true) {
+        try {
+            if (!$post) {
+                $post = get_post($post_id);
+            }
+
+            if (!$post || $post->post_status !== 'publish') {
+                $this->remove_post_from_cache($post_id);
+                return;
+            }
+
+            $post_data = array(
+                'id' => $post->ID,
+                'title' => $post->post_title,
+                'content' => strip_tags($post->post_content),
+                'excerpt' => $post->post_excerpt,
+                'type' => $post->post_type,
+                'status' => $post->post_status,
+                'date' => $post->post_date
+            );
+
+            $cache_type = isset($this->options['cache_type']) ? $this->options['cache_type'] : 'disk';
+
+            if ($cache_type === 'redis' && $this->redis) {
+                $this->update_redis_cache($post_id, $post_data);
+            } else {
+                $this->update_disk_cache($post_id, $post_data);
+            }
+
+            $this->logger->info('Updated cache for post ' . $post_id);
+            return true;
+
+        } catch (Exception $e) {
+            $this->log_error('Failed to update post cache: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function update_redis_cache($post_id, $post_data) {
+        // Remove old terms first
+        $old_terms = $this->redis->sMembers($this->cache_prefix . 'post_terms:' . $post_id);
+        if ($old_terms) {
+            foreach ($old_terms as $term) {
+                $this->redis->sRem($this->cache_prefix . 'term:' . $term, $post_id);
+            }
+        }
+
+        // Store post data
+        $this->redis->set($this->cache_prefix . 'post:' . $post_id, json_encode($post_data));
+
+        // Index terms
+        $terms = $this->extract_terms($post_data['title'] . ' ' . $post_data['content']);
+        $this->redis->del($this->cache_prefix . 'post_terms:' . $post_id);
+        foreach ($terms as $term) {
+            $this->redis->sAdd($this->cache_prefix . 'term:' . $term, $post_id);
+            $this->redis->sAdd($this->cache_prefix . 'post_terms:' . $post_id, $term);
+        }
+    }
+
+    private function update_disk_cache($post_id, $post_data) {
+        $data_file = $this->disk_cache_dir . 'posts/data.json';
+        
+        try {
+            $this->acquire_lock($data_file);
+            $json_data = file_exists($data_file) ? file_get_contents($data_file) : '{}';
+            $cache_data = json_decode($json_data, true) ?: array();
+            
+            $cache_data[$post_id] = $post_data;
+            
+            $safeWriter = new FileWriter();
+            $safeWriter->writeFile($data_file, json_encode($cache_data));
+            chmod($data_file, 0644);
+            
+        } finally {
+            $this->release_lock($data_file);
+        }
+    }
+
+    private function extract_terms($text) {
+        $text = strtolower(strip_tags($text));
+        $text = preg_replace('/[^a-z0-9\s]/', '', $text);
+        $words = array_unique(array_filter(explode(' ', $text)));
+        return array_values(array_filter($words, function($word) {
+            return strlen($word) >= 3;
+        }));
     }
 
     public function __destruct() {

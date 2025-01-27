@@ -18,7 +18,7 @@ A high-performance WordPress plugin that enhances search functionality by implem
 - PHP 7.1 or higher
 - WordPress 5.0 or higher
 - Redis server (optional)
-- PHP Redis extension
+- PHP Redis extension (Only if you want to use Redis)
 
 ## Installation
 

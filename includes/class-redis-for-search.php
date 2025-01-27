@@ -98,11 +98,19 @@ class Redis_For_Search {
     }
 
     private function initialize_smart_cache() {
-        if (isset($this->options['enable_smart_cache']) && $this->options['enable_smart_cache']) {
-            require_once RFS_PLUGIN_DIR . 'includes/class-redis-for-search-smart-cache.php';
+        try {
             $this->smart_cache = new Redis_For_Search_Smart_Cache();
             $this->smart_cache->init();
+        } catch (Exception $e) {
+            $this->logger->error('Smart cache initialization failed: ' . $e->getMessage());
         }
+    }
+
+    public function get_smart_cache() {
+        if (!$this->smart_cache) {
+            $this->initialize_smart_cache();
+        }
+        return $this->smart_cache;
     }
 
     private function connect_redis() {
