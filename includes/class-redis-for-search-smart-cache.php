@@ -162,7 +162,7 @@ class Redis_For_Search_Smart_Cache {
                 $safeWriter = new FileWriter();
                 $safeWriter->writeFile($data_file, json_encode(array()));
                 chmod($data_file, 0644);
-                $this->logger->info('Created empty data.json file at: ' . $data_file);
+               // $this->logger->info('Created empty data.json file at: ' . $data_file);
             } catch (Exception $e) {
                 throw new Exception('Failed to initialize data file: ' . $e->getMessage());
             }
@@ -219,7 +219,7 @@ class Redis_For_Search_Smart_Cache {
             try {
                 $this->process_posts_batch($batch);
                 $processed += count($batch);
-                $this->logger->info("Processed $processed/$total posts");
+              //  $this->logger->info("Processed $processed/$total posts");
 
                 if (function_exists('wp_cache_flush')) {
                     wp_cache_flush(); // Clear WordPress object cache after each batch
@@ -265,7 +265,7 @@ class Redis_For_Search_Smart_Cache {
             }
     
             if (!empty($results)) {
-                $this->logger->info('Smart cache search results found', array('count' => count($results)));
+             //   $this->logger->info('Smart cache search results found', array('count' => count($results)));
                 return $results;
             }
     
@@ -354,7 +354,7 @@ class Redis_For_Search_Smart_Cache {
             $post_ids = $query->posts;
 
             if (empty($post_ids)) {
-                $this->logger->info('No posts found to cache');
+              //  $this->logger->info('No posts found to cache');
                 return true;
             }
 
@@ -372,10 +372,10 @@ class Redis_For_Search_Smart_Cache {
                 ));
 
                 $processed += $this->process_batch($posts);
-                $this->logger->info("Processed $processed/$total_posts posts");
+             //   $this->logger->info("Processed $processed/$total_posts posts");
             }
 
-            $this->logger->info('Cache rebuild completed successfully');
+           // $this->logger->info('Cache rebuild completed successfully');
             return true;
 
         } catch (Exception $e) {
@@ -413,7 +413,7 @@ class Redis_For_Search_Smart_Cache {
                 $this->update_disk_cache($post_id, $post_data);
             }
 
-            $this->logger->info('Updated cache for post ' . $post_id);
+           // $this->logger->info('Updated cache for post ' . $post_id);
             return true;
 
         } catch (Exception $e) {
