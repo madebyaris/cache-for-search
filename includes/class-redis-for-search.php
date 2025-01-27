@@ -154,12 +154,19 @@ class Redis_For_Search {
             return $posts;
         }
 
-
         try {
-            
             $search_terms = $query->get('s');
             if (empty($search_terms)) {
                 return $posts;
+            }
+
+            // First try to get results from smart cache if enabled
+            if (isset($this->options['enable_smart_cache']) && $this->options['enable_smart_cache'] && $this->smart_cache) {
+                $smart_cache_results = $this->smart_cache->filter_search_results(null, $query);
+                if (!empty($smart_cache_results)) {
+                    $this->logger->info('Serving results from smart cache');
+                    return $smart_cache_results;
+                }
             }
 
             $cache_key = $this->generate_cache_key($search_terms, $query);
@@ -183,7 +190,7 @@ class Redis_For_Search {
             // Cache the results
             $this->set_cache($cache_key, $results);
             
-            return $posts;
+            return $results;
 
         } catch (Exception $e) {
             $this->logger->error('Error filtering search results: ' . $e->getMessage());
