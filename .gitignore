@@ -1,3 +1,10 @@
 # dont add the cache, it for test case
 /cache/
 cahce
+
+# zip
+.zip
+*.zip
+
+# Ds store
+.ds_store
