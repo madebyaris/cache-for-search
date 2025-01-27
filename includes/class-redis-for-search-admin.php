@@ -217,6 +217,8 @@ class Redis_For_Search_Admin {
         <p class="description">
             <?php _e('Smart cache significantly reduces MySQL database connections by:', 'redis-for-search'); ?>
             <ul style="list-style-type: disc; margin-left: 20px;">
+                <li><?php _e('THIS IS STILL EXPERIMENTAL','redis-for-search');?></li>
+                <li><?php _e('Use WP CLI to recreate the data cache if you use this','redis-for-search');?></li>
                 <li><?php _e('Storing post data in Redis memory for faster access', 'redis-for-search'); ?></li>
                 <li><?php _e('Disk mode will be storing data inside single file of data.json, keeping the same feature with Redis', 'redis-for-search'); ?></li>
                 <li><?php _e('Reducing the need for repeated database queries', 'redis-for-search'); ?></li>
