@@ -233,7 +233,7 @@ class Redis_For_Search {
             return false;
         }
 
-        $this->logger->debug('Attempting to fetch from Redis', ['key' => $key]);
+       //$this->logger->debug('Attempting to fetch from Redis', ['key' => $key]);
         $data = $this->redis->get($key);
         
         if ($data === false) {
@@ -242,11 +242,11 @@ class Redis_For_Search {
         }
 
         $unserialized_data = unserialize($data);
-        $this->logger->debug('Redis cache hit', [
+        /* $this->logger->debug('Redis cache hit', [
             'key' => $key,
             'data_size' => strlen($data),
             'result_count' => is_array($unserialized_data) ? count($unserialized_data) : 'non-array'
-        ]);
+        ]); */
 
         return $unserialized_data;
     }

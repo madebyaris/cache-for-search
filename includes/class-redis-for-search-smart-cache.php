@@ -43,7 +43,7 @@ class Redis_For_Search_Smart_Cache {
                 }
             }
 
-            $this->logger->info('Successfully connected to Redis server');
+            //$this->logger->info('Successfully connected to Redis server');
             return true;
 
         } catch (Exception $e) {
@@ -62,7 +62,7 @@ class Redis_For_Search_Smart_Cache {
             // Hook into search query to integrate smart cache
             add_filter('posts_pre_query', array($this, 'filter_search_results'), 10, 2);
             
-            $this->logger->info('Smart cache hooks setup successfully');
+            //$this->logger->info('Smart cache hooks setup successfully');
         } catch (Exception $e) {
             $this->log_error('Failed to setup hooks: ' . $e->getMessage());
         }
