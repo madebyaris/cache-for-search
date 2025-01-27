@@ -1,8 +1,20 @@
-# Redis for Search - WordPress Plugin
+# Redis / Disk cache for Search (full cache search) - WordPress Plugin
 
 [![License: GPL v2 or later](https://img.shields.io/badge/License-GPL%20v2%20or%20later-blue.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 
-A high-performance WordPress plugin that enhances search functionality by implementing Redis caching. This plugin significantly improves search performance and reduces database load by caching search results.
+A high-performance WordPress plugin that enhances search functionality by implementing caching via Redis or Disk. This plugin significantly improves search performance and reduces database load by caching search results.
+
+## Screenshots
+![Screenshot 1](/media/screenshoot.png)
+
+## 💝 Support & Donations
+If you find this plugin useful, please consider supporting me by making a donation. Your support helps me maintain and improve the plugin.
+
+[![PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/paypalme/airs) [![Trakteer](https://img.shields.io/badge/Donate-Trakteer-red.svg)](https://trakteer.id/madebyaris/tip)
+
+## 👨‍💻 Hire Me
+✉️ [arissetia.m@gmail.com](arissetia.m@gmail.com)
+🌐 [madebyaris.com](https://madebyaris.com)
 
 ## Features
 
