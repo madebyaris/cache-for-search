@@ -7,11 +7,13 @@ A high-performance WordPress plugin that enhances search functionality by implem
 ## Features
 
 - 🚀 Redis-powered search result caching
+- 🧠 Smart two-layer caching system
 - 📊 Cache statistics tracking (hits/misses)
 - 🔄 Automatic cache invalidation on post updates
-- ⚙️ Smart caching strategies
-- 🛠️ Configurable Redis connection settings
+- ⚙️ Smart caching strategies with adaptive algorithms
+- 🛠️ Configurable Redis and disk cache settings
 - 🎯 Admin interface for easy configuration
+- ⚡ Fallback to disk cache when Redis is unavailable
 
 ## Requirements
 
@@ -30,19 +32,28 @@ A high-performance WordPress plugin that enhances search functionality by implem
 ## Configuration
 
 1. Navigate to 'Settings > Redis for Search' in your WordPress admin panel
-2. Configure your Redis connection settings:
-   - Host (default: localhost)
-   - Port (default: 6379)
-   - Cache type
+2. Configure your caching settings:
+   - Redis connection:
+     - Host (default: localhost)
+     - Port (default: 6379)
+   - Cache type (redis, disk, or both)
+   - Smart cache options:
+     - Cache lifetime
+     - Minimum hit count for persistence
+     - Adaptive caching threshold
 3. Optional: Enable auto-revalidation for automatic cache updates
 
 ## Usage
 
 Once configured, the plugin works automatically. It will:
-- Cache search results in Redis
-- Serve cached results for identical searches
+- Cache search results using the smart two-layer system:
+  - First layer: Redis for high-speed access
+  - Second layer: Disk cache for persistence and fallback
+- Intelligently manage cache storage based on search patterns
+- Serve cached results for identical searches from the fastest available source
 - Automatically invalidate cache when posts are updated
-- Track cache performance statistics
+- Track cache performance statistics for both layers
+- Adaptively optimize cache storage based on usage patterns
 
 ### WP-CLI Commands
 
