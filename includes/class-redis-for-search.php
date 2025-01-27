@@ -77,6 +77,21 @@ class Redis_For_Search {
     }
 
     private function initialize_storage() {
+        if (!class_exists('Redis')) {
+            if (isset($this->options['cache_type']) && $this->options['cache_type'] === 'redis') {
+                $this->options['cache_type'] = 'disk';
+                update_option('redis_for_search_options', $this->options);
+                add_action('admin_notices', function() {
+                    echo '<div class="notice notice-warning"><p>';
+                    echo 'Redis for Search: PHP Redis extension is not installed. The plugin has automatically switched to disk storage. ';
+                    echo 'To use Redis storage, please install the PHP Redis extension and configure your Redis server.';
+                    echo '</p></div>';
+                });
+                $this->logger->info('Redis extension not available, falling back to disk storage');
+            }
+            return;
+        }
+
         if (isset($this->options['cache_type']) && $this->options['cache_type'] === 'redis') {
             $this->connect_redis();
         }
@@ -109,6 +124,11 @@ class Redis_For_Search {
                 if (!$this->redis->auth($this->options['redis_password'])) {
                     throw new Exception('Redis authentication failed');
                 }
+            }
+
+            $database = isset($this->options['redis_database']) ? (int)$this->options['redis_database'] : 0;
+            if (!$this->redis->select($database)) {
+                throw new Exception('Redis database selection failed');
             }
 
             $this->logger->info('Connected to Redis server successfully');
@@ -194,15 +214,26 @@ class Redis_For_Search {
 
     private function get_redis_cache($key) {
         if (!$this->redis) {
+            $this->logger->debug('Redis connection not available');
             return false;
         }
 
+        $this->logger->debug('Attempting to fetch from Redis', ['key' => $key]);
         $data = $this->redis->get($key);
+        
         if ($data === false) {
+            $this->logger->debug('Redis cache miss', ['key' => $key]);
             return false;
         }
 
-        return unserialize($data);
+        $unserialized_data = unserialize($data);
+        $this->logger->debug('Redis cache hit', [
+            'key' => $key,
+            'data_size' => strlen($data),
+            'result_count' => is_array($unserialized_data) ? count($unserialized_data) : 'non-array'
+        ]);
+
+        return $unserialized_data;
     }
 
     private function get_disk_cache($key) {

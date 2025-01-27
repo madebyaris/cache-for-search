@@ -102,6 +102,14 @@ class Redis_For_Search_Admin {
         );
 
         add_settings_field(
+            'redis_database',
+            __('Redis Database', 'redis-for-search'),
+            array($this, 'render_redis_database_field'),
+            'redis-for-search',
+            'redis_for_search_general'
+        );
+
+        add_settings_field(
             'auto_revalidate',
             __('Auto Revalidate Cache', 'redis-for-search'),
             array($this, 'render_auto_revalidate_field'),
@@ -185,6 +193,14 @@ class Redis_For_Search_Admin {
         <?php
     }
 
+    public function render_redis_database_field() {
+        $redis_database = isset($this->options['redis_database']) ? $this->options['redis_database'] : '0';
+        ?>
+        <input type="number" name="redis_for_search_options[redis_database]" value="<?php echo esc_attr($redis_database); ?>" min="0" max="15" />
+        <p class="description"><?php _e('Redis database number (0-15)', 'redis-for-search'); ?></p>
+        <?php
+    }
+
     public function render_auto_revalidate_field() {
         $auto_revalidate = isset($this->options['auto_revalidate']) ? $this->options['auto_revalidate'] : false;
         ?>
@@ -202,6 +218,7 @@ class Redis_For_Search_Admin {
             <?php _e('Smart cache significantly reduces MySQL database connections by:', 'redis-for-search'); ?>
             <ul style="list-style-type: disc; margin-left: 20px;">
                 <li><?php _e('Storing post data in Redis memory for faster access', 'redis-for-search'); ?></li>
+                <li><?php _e('Disk mode will be storing data inside single file of data.json, keeping the same feature with Redis', 'redis-for-search'); ?></li>
                 <li><?php _e('Reducing the need for repeated database queries', 'redis-for-search'); ?></li>
                 <li><?php _e('Ideal for sites with MySQL connection limits or high traffic', 'redis-for-search'); ?></li>
             </ul>
